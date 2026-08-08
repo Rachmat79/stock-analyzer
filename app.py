@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import requests
-import os
 from io import BytesIO
 from datetime import datetime
 
@@ -345,160 +343,49 @@ def rupiah(x):
     return f'Rp {x:,.0f}'
 
 # ==================================================
-# DATA SOURCE — Auto Import dari Folder / Upload Manual
+# UPLOAD FILE
 # ==================================================
-REQUIRED_COLS = [
-    'Store',
-    'Category',
-    'Article',
-    'Article Description',
-    'SOH Qty',
-    'Qty Counted',
-    'Stock Take Variance Qty',
-    'Stock Take Variance Value'
-]
+uploaded_file = st.file_uploader(
+    'Upload file stock take (Excel atau CSV)',
+    type=['xlsx', 'csv']
+)
 
-NUMERIC_COLS = [
-    'SOH Qty',
-    'Qty Counted',
-    'Stock Take Variance Qty',
-    'Stock Take Variance Value'
-]
+if uploaded_file is not None:
 
-def validate_and_clean(raw_df):
-    missing = [c for c in REQUIRED_COLS if c not in raw_df.columns]
+    if uploaded_file.name.lower().endswith('.csv'):
+        raw_df = pd.read_csv(uploaded_file, sep=None, engine='python')
+    else:
+        raw_df = pd.read_excel(uploaded_file)
+
+    st.success('File berhasil dibaca')
+
+    required_cols = [
+        'Store',
+        'Category',
+        'Article',
+        'Article Description',
+        'SOH Qty',
+        'Qty Counted',
+        'Stock Take Variance Qty',
+        'Stock Take Variance Value'
+    ]
+
+    missing = [c for c in required_cols if c not in raw_df.columns]
 
     if missing:
         st.error(f'Kolom belum ditemukan: {missing}')
-        st.write('Kolom yang tersedia di data:', raw_df.columns.tolist())
+        st.write(raw_df.columns.tolist())
         st.stop()
 
-    for col in NUMERIC_COLS:
-        raw_df[col] = pd.to_numeric(raw_df[col], errors='coerce').fillna(0)
-
-    return raw_df
-
-
-@st.cache_data(ttl=60 * 60, show_spinner=False)
-def _read_source_file(file_path, file_mtime):
-    '''
-    file_mtime ikut dijadikan parameter cache supaya cache otomatis
-    "basi"/invalid begitu ada file baru yang lebih baru di-export ke folder.
-    '''
-    if file_path.lower().endswith('.csv'):
-        return pd.read_csv(file_path, sep=None, engine='python')
-    return pd.read_excel(file_path)
-
-
-def fetch_data_from_folder():
-    '''
-    Mengambil otomatis file EXPORT TERBARU (Excel/CSV) dari sebuah folder.
-
-    Cara pakai:
-      1. Tetap export data seperti biasa dari heroretailplatform.com
-         (Download Excel/CSV dari dashboard, seperti yang sudah biasa
-         dilakukan).
-      2. SIMPAN file hasil export tersebut ke folder yang sudah
-         dikonfigurasi (lihat WATCH_FOLDER di bawah / secrets.toml).
-         Bisa folder lokal di laptop, atau folder network share kalau
-         aplikasi ini nanti dijalankan di server bersama.
-      3. Aplikasi otomatis mendeteksi & memuat file dengan tanggal
-         modifikasi PALING BARU di folder tersebut -> tidak perlu lagi
-         klik upload manual satu per satu tiap kali buka aplikasi.
-
-    Konfigurasi folder bisa diisi di .streamlit/secrets.toml:
-
-        [import]
-        watch_folder = "C:/HeroExports"
-
-    Kalau belum diisi, default memakai folder "./data_watch" (relatif
-    terhadap lokasi app.py) supaya tetap bisa dites tanpa konfigurasi.
-    '''
-    watch_folder = st.secrets.get('import', {}).get('watch_folder', './data_watch')
-
-    if not os.path.isdir(watch_folder):
-        raise RuntimeError(
-            f'Folder "{watch_folder}" belum ada / belum ditemukan. '
-            'Buat foldernya dulu, lalu simpan file export ke sana, '
-            'atau sesuaikan path-nya di secrets.toml pada bagian [import].'
-        )
-
-    candidates = [
-        f for f in os.listdir(watch_folder)
-        if f.lower().endswith(('.xlsx', '.csv')) and not f.startswith('~$')
+    numeric_cols = [
+        'SOH Qty',
+        'Qty Counted',
+        'Stock Take Variance Qty',
+        'Stock Take Variance Value'
     ]
 
-    if not candidates:
-        raise RuntimeError(
-            f'Belum ada file Excel/CSV di folder "{watch_folder}". '
-            'Export dulu data dari heroretailplatform.com dan simpan '
-            'ke folder tersebut.'
-        )
-
-    candidates_full = [os.path.join(watch_folder, f) for f in candidates]
-    latest_file = max(candidates_full, key=os.path.getmtime)
-    mtime = os.path.getmtime(latest_file)
-
-    df = _read_source_file(latest_file, mtime)
-
-    return df, latest_file, mtime
-
-
-st.markdown('### 🔗 Sumber Data')
-
-data_source = st.radio(
-    'Pilih sumber data',
-    ['Ambil Otomatis dari Folder', 'Upload Manual'],
-    horizontal=True
-)
-
-raw_df = None
-
-if data_source == 'Ambil Otomatis dari Folder':
-
-    col_sync_info, col_sync_button = st.columns([3, 1])
-
-    with col_sync_button:
-        if st.button('🔄 Cek File Terbaru', use_container_width=True):
-            st.cache_data.clear()
-
-    try:
-        raw_df, source_file, mtime = fetch_data_from_folder()
-
-        file_name = os.path.basename(source_file)
-        updated_str = datetime.fromtimestamp(mtime).strftime('%d %B %Y, %H:%M')
-
-        with col_sync_info:
-            st.caption(f'File terdeteksi: **{file_name}** • di-export: {updated_str}')
-
-        st.success(f'Data berhasil dimuat otomatis ({len(raw_df):,} baris)')
-
-    except Exception as e:
-        st.error(f'Gagal memuat data otomatis: {e}')
-        st.info(
-            'Pastikan file hasil export dari Hero Retail Platform sudah '
-            'disimpan di folder yang dikonfigurasi. Atau pilih "Upload Manual" '
-            'sebagai alternatif sementara.'
-        )
-
-else:
-    uploaded_file = st.file_uploader(
-        'Upload file stock take (Excel atau CSV)',
-        type=['xlsx', 'csv']
-    )
-
-    if uploaded_file is not None:
-
-        if uploaded_file.name.lower().endswith('.csv'):
-            raw_df = pd.read_csv(uploaded_file, sep=None, engine='python')
-        else:
-            raw_df = pd.read_excel(uploaded_file)
-
-        st.success('File berhasil dibaca')
-
-if raw_df is not None:
-
-    raw_df = validate_and_clean(raw_df)
+    for col in numeric_cols:
+        raw_df[col] = pd.to_numeric(raw_df[col], errors='coerce').fillna(0)
 
     tab_dashboard, tab_report = st.tabs([
         'Executive Dashboard',
