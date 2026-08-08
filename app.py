@@ -13,27 +13,186 @@ st.set_page_config(
 )
 
 # ==================================================
-# STYLE
+# STYLE — Light Purple Glassmorphism Theme
 # ==================================================
 st.markdown(
     '''
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+
+    /* ---------- Base canvas: soft lavender + ambient purple glow ---------- */
     .stApp {
-        background: linear-gradient(180deg,#F8FAFC 0%,#EEF2FF 100%);
+        background:
+            radial-gradient(circle at 8% 6%, rgba(147,51,234,0.14) 0%, rgba(147,51,234,0) 42%),
+            radial-gradient(circle at 92% 12%, rgba(217,70,239,0.10) 0%, rgba(217,70,239,0) 40%),
+            radial-gradient(circle at 85% 92%, rgba(124,58,237,0.12) 0%, rgba(124,58,237,0) 42%),
+            linear-gradient(165deg, #FAF9FF 0%, #F3EEFE 50%, #FBF5FF 100%);
+        background-attachment: fixed;
     }
 
-    div[data-testid="metric-container"] {
-        padding:18px;
-        border-radius:18px;
-        box-shadow:0 6px 16px rgba(0,0,0,0.08);
+    .stApp, .stApp p, .stApp li, .stApp span, .stApp label {
+        color: #4B4468;
     }
 
-    .stDownloadButton > button {
-        background: linear-gradient(135deg,#4338CA,#6366F1);
-        color:white;
-        border:none;
-        border-radius:12px;
-        font-weight:700;
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Manrope', sans-serif !important;
+        color: #241F47 !important;
+        letter-spacing: -0.01em;
+    }
+    h1 { font-weight: 800 !important; }
+    h2 { font-weight: 700 !important; font-size: 21px !important; }
+    h3 { font-weight: 600 !important; font-size: 17px !important; color:#312A5E !important; }
+
+    hr {
+        border: none !important;
+        height: 1px !important;
+        background: linear-gradient(90deg, rgba(147,51,234,0) 0%, rgba(147,51,234,0.28) 50%, rgba(147,51,234,0) 100%) !important;
+        margin: 26px 0 !important;
+    }
+
+    /* ---------- Reusable glass panel ---------- */
+    .glass-panel {
+        background: rgba(255,255,255,0.55);
+        border: 1px solid rgba(147,51,234,0.16);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-radius: 20px;
+        box-shadow: 0 8px 32px rgba(124,58,237,0.10), inset 0 1px 0 rgba(255,255,255,0.7);
+    }
+
+    /* ---------- Sidebar ---------- */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(243,238,254,0.96));
+        border-right: 1px solid rgba(147,51,234,0.12);
+    }
+    section[data-testid="stSidebar"] * { color:#4B4468 !important; }
+
+    /* ---------- Buttons ---------- */
+    div.stButton > button, .stDownloadButton > button {
+        background: linear-gradient(135deg,#7C3AED,#A855F7 55%,#D946EF);
+        color: #FFFFFF !important;
+        border: none;
+        border-radius: 12px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        padding: 10px 18px;
+        box-shadow: 0 4px 18px rgba(147,51,234,0.30);
+        transition: all .2s ease;
+    }
+    div.stButton > button:hover, .stDownloadButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 26px rgba(147,51,234,0.42);
+        filter: brightness(1.06);
+    }
+
+    /* ---------- Metric cards ---------- */
+    div[data-testid="stMetric"] {
+        background: rgba(255,255,255,0.6);
+        border: 1px solid rgba(147,51,234,0.15);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-radius: 18px;
+        padding: 20px 22px;
+        box-shadow: 0 8px 28px rgba(124,58,237,0.08), inset 0 1px 0 rgba(255,255,255,0.7);
+        overflow: visible !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        color: #8A82AD !important;
+        text-transform: uppercase;
+        font-size: 11.5px !important;
+        letter-spacing: 0.08em;
+        font-weight: 700 !important;
+    }
+    /* Fix: nilai metric (mis. Total Diff Value) tidak lagi terpotong/ellipsis */
+    div[data-testid="stMetricValue"] {
+        font-family: 'JetBrains Mono', monospace !important;
+        color: #241F47 !important;
+        font-weight: 600 !important;
+        font-size: 19px !important;
+        line-height: 1.3 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-word !important;
+    }
+    div[data-testid="stMetricValue"] > div {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }
+
+    /* ---------- Tabs ---------- */
+    button[data-baseweb="tab"] {
+        background: rgba(255,255,255,0.45);
+        border-radius: 12px !important;
+        color: #8A82AD !important;
+        font-weight: 600;
+        margin-right: 6px;
+        border: 1px solid rgba(147,51,234,0.12) !important;
+    }
+    button[aria-selected="true"][data-baseweb="tab"] {
+        background: linear-gradient(135deg,#7C3AED,#D946EF) !important;
+        color: #ffffff !important;
+        border: none !important;
+    }
+    [data-baseweb="tab-highlight"] { display:none; }
+    [data-baseweb="tab-border"] { display:none; }
+
+    /* ---------- Radio ---------- */
+    div[role="radiogroup"] label { color:#4B4468 !important; font-weight:500; }
+    input[type="radio"] { accent-color: #7C3AED; }
+
+    /* ---------- Select / Text Input ---------- */
+    div[data-baseweb="select"] > div,
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input {
+        background: rgba(255,255,255,0.65) !important;
+        border: 1px solid rgba(147,51,234,0.18) !important;
+        border-radius: 12px !important;
+        color: #241F47 !important;
+    }
+    div[data-baseweb="select"] > div:focus-within,
+    div[data-testid="stTextInput"] input:focus {
+        border-color: rgba(168,85,247,0.6) !important;
+        box-shadow: 0 0 0 3px rgba(168,85,247,0.15) !important;
+    }
+
+    /* ---------- File uploader ---------- */
+    [data-testid="stFileUploaderDropzone"] {
+        background: rgba(255,255,255,0.45);
+        border: 1px dashed rgba(147,51,234,0.3);
+        border-radius: 16px;
+    }
+
+    /* ---------- Dataframe ---------- */
+    [data-testid="stDataFrame"] {
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(147,51,234,0.14);
+        box-shadow: 0 8px 24px rgba(124,58,237,0.08);
+    }
+
+    /* ---------- Alerts ---------- */
+    div[data-testid="stAlert"] {
+        background: rgba(255,255,255,0.6) !important;
+        border-radius: 14px !important;
+        border: 1px solid rgba(147,51,234,0.16) !important;
+        color: #312A5E !important;
+    }
+
+    /* ---------- Scrollbar ---------- */
+    ::-webkit-scrollbar { width:8px; height:8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(147,51,234,0.32); border-radius:8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* ---------- Keyboard focus accessibility ---------- */
+    button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+        outline: 2px solid #A855F7 !important;
+        outline-offset: 2px;
     }
     </style>
     ''',
@@ -67,47 +226,29 @@ def do_logout():
 
 if not st.session_state.authenticated:
 
-    st.markdown(
-        '''
-        <style>
-        div[data-testid="stTextInput"] label p {
-            font-size:15px;
-            font-weight:600;
-            color:#1E293B;
-        }
-        div[data-testid="stTextInput"] input {
-            background-color:#EEF2FF;
-            border-radius:12px;
-            border:1px solid #C7D2FE;
-            padding:12px 14px;
-            font-size:15px;
-        }
-        div.stButton > button {
-            background: linear-gradient(135deg,#4338CA,#6366F1);
-            color:white;
-            border:none;
-            border-radius:12px;
-            font-weight:700;
-            padding:10px 0;
-            width:100%;
-        }
-        </style>
-        ''',
-        unsafe_allow_html=True
-    )
-
     col_left, col_center, col_right = st.columns([1, 1.3, 1])
 
     with col_center:
 
         st.markdown(
             '''
-            <div style="background: linear-gradient(135deg,#312E81,#4338CA,#6366F1);
-                        padding:26px;border-radius:22px;color:white;
-                        margin-top:40px;margin-bottom:28px;text-align:center;">
-                <h2 style="color:white;margin:0;font-size:26px;">🔒 Stock Variance Analyzer</h2>
-                <p style="color:#E0E7FF;margin-top:8px;margin-bottom:0;font-size:14px;">
-                    Silakan login untuk mengakses aplikasi
+            <div class="glass-panel" style="padding:36px 34px;margin-top:64px;
+                        margin-bottom:26px;text-align:center;position:relative;overflow:hidden;">
+                <div style="position:absolute;top:-32%;left:-14%;width:220px;height:220px;
+                            background:radial-gradient(circle,rgba(217,70,239,0.20),transparent 70%);
+                            filter:blur(6px);pointer-events:none;"></div>
+                <div style="position:absolute;bottom:-30%;right:-14%;width:200px;height:200px;
+                            background:radial-gradient(circle,rgba(124,58,237,0.22),transparent 70%);
+                            filter:blur(6px);pointer-events:none;"></div>
+                <p style="color:#A855F7;font-size:11.5px;font-weight:700;letter-spacing:0.16em;
+                          text-transform:uppercase;margin:0 0 10px 0;position:relative;">Secure Access</p>
+                <h2 style="margin:0;font-size:24px;font-weight:800;position:relative;
+                           background:linear-gradient(135deg,#4C1D95,#7C3AED 55%,#D946EF);
+                           -webkit-background-clip:text;background-clip:text;color:transparent;">
+                    Stock Variance Analyzer
+                </h2>
+                <p style="color:#8A82AD;font-size:13.5px;margin-top:8px;margin-bottom:0;position:relative;">
+                    Masuk untuk mengakses dashboard
                 </p>
             </div>
             ''',
@@ -115,7 +256,8 @@ if not st.session_state.authenticated:
         )
 
         st.markdown(
-            'Username <span style="color:#DC2626;">*</span>',
+            '<p style="color:#4B4468;font-size:13.5px;font-weight:600;margin-bottom:6px;">'
+            'Username <span style="color:#DB2777;">*</span></p>',
             unsafe_allow_html=True
         )
         st.text_input(
@@ -126,7 +268,9 @@ if not st.session_state.authenticated:
         )
 
         st.markdown(
-            'Password <span style="color:#DC2626;">*</span>',
+            '<p style="color:#4B4468;font-size:13.5px;font-weight:600;'
+            'margin-top:16px;margin-bottom:6px;">'
+            'Password <span style="color:#DB2777;">*</span></p>',
             unsafe_allow_html=True
         )
         st.text_input(
@@ -138,7 +282,7 @@ if not st.session_state.authenticated:
         )
 
         st.write('')
-        st.button('Login', on_click=do_login)
+        st.button('Masuk', on_click=do_login, use_container_width=True)
 
         if st.session_state.get('login_error'):
             st.error('Username atau Password salah. Akses ditolak.')
@@ -150,13 +294,22 @@ if not st.session_state.authenticated:
 # ==================================================
 st.markdown(
     '''
-    <div style="background: linear-gradient(135deg,#312E81,#4338CA,#6366F1);
-                padding:28px;border-radius:22px;color:white;margin-bottom:24px;">
-        <h1 style="color:white;margin:0;font-size:36px;">Stock Variance Analyzer</h1>
-        <p style="color:#E0E7FF;font-size:18px;margin-top:10px;margin-bottom:6px;">
+    <div class="glass-panel" style="padding:34px 38px;margin-bottom:28px;position:relative;overflow:hidden;">
+        <div style="position:absolute;top:-45%;right:-8%;width:300px;height:300px;
+                    background:radial-gradient(circle,rgba(147,51,234,0.22),transparent 70%);
+                    filter:blur(8px);pointer-events:none;"></div>
+        <div style="position:absolute;bottom:-60%;left:20%;width:260px;height:260px;
+                    background:radial-gradient(circle,rgba(217,70,239,0.14),transparent 70%);
+                    filter:blur(8px);pointer-events:none;"></div>
+        <h1 style="margin:0;font-size:34px;font-weight:800;position:relative;
+                   background:linear-gradient(135deg,#4C1D95,#7C3AED 55%,#D946EF);
+                   -webkit-background-clip:text;background-clip:text;color:transparent;">
+            Stock Variance Analyzer
+        </h1>
+        <p style="color:#6D6690;font-size:15px;margin-top:10px;margin-bottom:4px;position:relative;">
             Executive Dashboard Analisa Variance Stock Take
         </p>
-        <p style="color:#C7D2FE;font-size:14px;margin:0;font-style:italic;">
+        <p style="color:#948FB0;font-size:12.5px;margin:0;font-style:italic;position:relative;">
             Author : Rachmat Hidayat
         </p>
     </div>
@@ -168,7 +321,18 @@ st.markdown(
 # SIDEBAR - USER INFO & LOGOUT
 # ==================================================
 with st.sidebar:
-    st.markdown(f'👤 **Login sebagai:** `{VALID_USERNAME}`')
+    st.markdown(
+        f'''
+        <div class="glass-panel" style="padding:14px 16px;margin-bottom:14px;">
+            <p style="margin:0;font-size:10.5px;color:#8A82AD;text-transform:uppercase;
+                      letter-spacing:0.08em;font-weight:700;">Signed in as</p>
+            <p style="margin:5px 0 0 0;font-size:14.5px;color:#241F47;font-weight:700;">
+                {VALID_USERNAME}
+            </p>
+        </div>
+        ''',
+        unsafe_allow_html=True
+    )
     st.button('Logout', on_click=do_logout, use_container_width=True)
     st.markdown('---')
 
@@ -273,7 +437,19 @@ if uploaded_file is not None:
         summary_display = summary.copy()
         summary_display['Diff_Value'] = summary_display['Diff_Value'].apply(rupiah)
 
-        st.dataframe(summary_display, use_container_width=True, height=520)
+        st.dataframe(
+            summary_display,
+            use_container_width=True,
+            height=520,
+            hide_index=True,
+            column_config={
+                'Category': st.column_config.TextColumn(width=200),
+                'SOH_Qty': st.column_config.TextColumn(label='SOH Qty', width=90),
+                'Counted_Qty': st.column_config.TextColumn(label='Counted Qty', width=100),
+                'Diff_Qty': st.column_config.TextColumn(label='Diff Qty', width=90),
+                'Diff_Value': st.column_config.TextColumn(label='Diff Value', width=120)
+            }
+        )
 
         st.markdown('### 🧾 Total Summary by Category')
 
@@ -297,7 +473,7 @@ if uploaded_file is not None:
                 y='Category',
                 orientation='h',
                 text='Diff_Value',
-                color_discrete_sequence=['#DC2626']
+                color_discrete_sequence=['#FB7185']
             )
 
             fig_loss.update_traces(
@@ -308,8 +484,11 @@ if uploaded_file is not None:
             fig_loss.update_layout(
                 showlegend=False,
                 height=600,
-                plot_bgcolor='white',
-                paper_bgcolor='white'
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#4B4468', family='Manrope'),
+                xaxis=dict(gridcolor='rgba(147,51,234,0.10)', zerolinecolor='rgba(147,51,234,0.22)'),
+                yaxis=dict(gridcolor='rgba(147,51,234,0.05)')
             )
 
             st.plotly_chart(fig_loss, use_container_width=True)
@@ -330,7 +509,7 @@ if uploaded_file is not None:
                 y='Category',
                 orientation='h',
                 text='Diff_Value',
-                color_discrete_sequence=['#10B981']
+                color_discrete_sequence=['#34D399']
             )
 
             fig_plus.update_traces(
@@ -341,8 +520,11 @@ if uploaded_file is not None:
             fig_plus.update_layout(
                 showlegend=False,
                 height=600,
-                plot_bgcolor='white',
-                paper_bgcolor='white'
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#4B4468', family='Manrope'),
+                xaxis=dict(gridcolor='rgba(147,51,234,0.10)', zerolinecolor='rgba(147,51,234,0.22)'),
+                yaxis=dict(gridcolor='rgba(147,51,234,0.05)')
             )
 
             st.plotly_chart(fig_plus, use_container_width=True)
@@ -363,9 +545,16 @@ if uploaded_file is not None:
             hole=0.55,
             color='Kategori',
             color_discrete_map={
-                'Loss': '#DC2626',
-                'Plus': '#10B981'
+                'Loss': '#FB7185',
+                'Plus': '#34D399'
             }
+        )
+
+        fig_pie.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='#4B4468', family='Manrope'),
+            legend=dict(font=dict(color='#4B4468'))
         )
 
         st.plotly_chart(fig_pie, use_container_width=True)
@@ -385,18 +574,34 @@ if uploaded_file is not None:
             'Stock Take Variance Value'
         ].apply(rupiah)
 
+        loss_table = loss_display[
+            [
+                'Store',
+                'Category',
+                'Article',
+                'Article Description',
+                'Stock Take Variance Qty',
+                'Stock Take Variance Value'
+            ]
+        ]
+
         st.dataframe(
-            loss_display[
-                [
-                    'Store',
-                    'Category',
-                    'Article',
-                    'Article Description',
-                    'Stock Take Variance Qty',
-                    'Stock Take Variance Value'
-                ]
-            ],
-            use_container_width=True
+            loss_table,
+            use_container_width=True,
+            hide_index=True,
+            height=int(35.2 * (len(loss_table) + 1)) + 3,
+            column_config={
+                'Store': st.column_config.TextColumn(width=180),
+                'Category': st.column_config.TextColumn(width=160),
+                'Article': st.column_config.TextColumn(width=70),
+                'Article Description': st.column_config.TextColumn(width=220),
+                'Stock Take Variance Qty': st.column_config.TextColumn(
+                    label='Variance Qty', width=90
+                ),
+                'Stock Take Variance Value': st.column_config.TextColumn(
+                    label='Variance Value', width=120
+                )
+            }
         )
 
         st.markdown('---')
@@ -414,18 +619,34 @@ if uploaded_file is not None:
             'Stock Take Variance Value'
         ].apply(rupiah)
 
+        plus_table = plus_display[
+            [
+                'Store',
+                'Category',
+                'Article',
+                'Article Description',
+                'Stock Take Variance Qty',
+                'Stock Take Variance Value'
+            ]
+        ]
+
         st.dataframe(
-            plus_display[
-                [
-                    'Store',
-                    'Category',
-                    'Article',
-                    'Article Description',
-                    'Stock Take Variance Qty',
-                    'Stock Take Variance Value'
-                ]
-            ],
-            use_container_width=True
+            plus_table,
+            use_container_width=True,
+            hide_index=True,
+            height=int(35.2 * (len(plus_table) + 1)) + 3,
+            column_config={
+                'Store': st.column_config.TextColumn(width=180),
+                'Category': st.column_config.TextColumn(width=160),
+                'Article': st.column_config.TextColumn(width=70),
+                'Article Description': st.column_config.TextColumn(width=220),
+                'Stock Take Variance Qty': st.column_config.TextColumn(
+                    label='Variance Qty', width=90
+                ),
+                'Stock Take Variance Value': st.column_config.TextColumn(
+                    label='Variance Value', width=120
+                )
+            }
         )
 
         st.markdown('---')
@@ -452,7 +673,22 @@ if uploaded_file is not None:
                 ]
             ],
             use_container_width=True,
-            height=500
+            height=500,
+            hide_index=True,
+            column_config={
+                'Store': st.column_config.TextColumn(width=170),
+                'Category': st.column_config.TextColumn(width=150),
+                'Article': st.column_config.TextColumn(width=70),
+                'Article Description': st.column_config.TextColumn(width=200),
+                'SOH Qty': st.column_config.TextColumn(width=80),
+                'Qty Counted': st.column_config.TextColumn(width=90),
+                'Stock Take Variance Qty': st.column_config.TextColumn(
+                    label='Variance Qty', width=90
+                ),
+                'Stock Take Variance Value': st.column_config.TextColumn(
+                    label='Variance Value', width=120
+                )
+            }
         )
 
         st.caption(f'Total data ditampilkan: {len(data_lengkap_display):,} baris')
@@ -479,7 +715,15 @@ if uploaded_file is not None:
     with tab_report:
 
         st.markdown(
-            '<h2 style="background:#1E40AF;color:white;padding:12px;border-radius:8px;">Stock Variance Report</h2>',
+            '''
+            <div class="glass-panel" style="padding:18px 24px;margin-bottom:22px;">
+                <p style="color:#A855F7;font-size:11px;font-weight:700;letter-spacing:0.14em;
+                          text-transform:uppercase;margin:0 0 6px 0;">Detail Report</p>
+                <h2 style="margin:0;font-size:22px;font-weight:800;color:#241F47;">
+                    Stock Variance Report
+                </h2>
+            </div>
+            ''',
             unsafe_allow_html=True
         )
 
@@ -634,7 +878,24 @@ if uploaded_file is not None:
 
         display_df['Diff Value'] = display_df['Diff Value'].apply(rupiah)
 
-        st.dataframe(display_df, use_container_width=True, height=650)
+        report_column_config = {
+            'S/N': st.column_config.TextColumn(width=50),
+            'Variance Group': st.column_config.TextColumn(width=90),
+            'Product No.': st.column_config.TextColumn(width=80),
+            'Article Description': st.column_config.TextColumn(width=220),
+            'SOH': st.column_config.TextColumn(width=80),
+            'Counted Qty': st.column_config.TextColumn(width=90),
+            'Diff Qty': st.column_config.TextColumn(width=80),
+            'Diff Value': st.column_config.TextColumn(width=120)
+        }
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=650,
+            hide_index=True,
+            column_config=report_column_config
+        )
 
         st.markdown('### Total')
 
@@ -676,4 +937,11 @@ if uploaded_file is not None:
 # FOOTER
 # ==================================================
 st.markdown('---')
-st.caption('Stock Variance Analyzer | Author : Rachmat Hidayat')
+st.markdown(
+    '''
+    <p style="text-align:center;color:#948FB0;font-size:12.5px;letter-spacing:0.02em;">
+        Stock Variance Analyzer &nbsp;•&nbsp; Author : Rachmat Hidayat
+    </p>
+    ''',
+    unsafe_allow_html=True
+)
