@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import streamlit.components.v1 as components
 from io import BytesIO
 from datetime import datetime
 
@@ -202,18 +203,24 @@ st.markdown(
 # ==================================================
 # LOGIN SYSTEM
 # ==================================================
-VALID_USERNAME = 'rachmat79'
-VALID_PASSWORD = '591979'
+VALID_USERS = {
+    'rachmat79': '591979',
+    'stockhrn': '12345'
+}
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
 
 def do_login():
     input_user = st.session_state.get('login_username', '')
     input_pass = st.session_state.get('login_password', '')
 
-    if input_user == VALID_USERNAME and input_pass == VALID_PASSWORD:
+    if input_user in VALID_USERS and VALID_USERS[input_user] == input_pass:
         st.session_state.authenticated = True
+        st.session_state.current_user = input_user
         st.session_state.login_error = False
     else:
         st.session_state.authenticated = False
@@ -221,8 +228,38 @@ def do_login():
 
 def do_logout():
     st.session_state.authenticated = False
+    st.session_state.current_user = None
     st.session_state.login_username = ''
     st.session_state.login_password = ''
+    st.session_state.pop('last_activity', None)
+
+# --------------------------------------------------
+# AUTO-LOGOUT setelah tidak ada aktivitas (idle timeout)
+# --------------------------------------------------
+SESSION_TIMEOUT_MINUTES = 60
+
+def check_session_timeout():
+    '''
+    Dipanggil di setiap rerun. Kalau user sudah login dan jeda waktu
+    sejak aktivitas terakhir melebihi SESSION_TIMEOUT_MINUTES, user
+    otomatis di-logout dan diarahkan kembali ke halaman login dengan
+    pesan sesi berakhir.
+    '''
+    if st.session_state.authenticated:
+        last_activity = st.session_state.get('last_activity')
+
+        if last_activity is not None:
+            elapsed_minutes = (datetime.now() - last_activity).total_seconds() / 60
+
+            if elapsed_minutes > SESSION_TIMEOUT_MINUTES:
+                st.session_state.authenticated = False
+                st.session_state.session_expired = True
+                st.session_state.pop('last_activity', None)
+                return
+
+        st.session_state.last_activity = datetime.now()
+
+check_session_timeout()
 
 if not st.session_state.authenticated:
 
@@ -287,7 +324,48 @@ if not st.session_state.authenticated:
         if st.session_state.get('login_error'):
             st.error('Username atau Password salah. Akses ditolak.')
 
+        if st.session_state.get('session_expired'):
+            st.warning(
+                f'Sesi Anda berakhir karena tidak ada aktivitas selama '
+                f'{SESSION_TIMEOUT_MINUTES} menit. Silakan login kembali.'
+            )
+            st.session_state.session_expired = False
+
     st.stop()
+
+# ==================================================
+# AUTO-LOGOUT IDLE DETECTOR (client-side)
+# ==================================================
+# Memantau aktivitas mouse/keyboard/scroll di browser. Kalau tidak ada
+# aktivitas sama sekali selama SESSION_TIMEOUT_MINUTES, halaman otomatis
+# di-refresh -> memicu pengecekan check_session_timeout() di server yang
+# akan mengeluarkan user ke halaman login.
+components.html(
+    f'''
+    <script>
+    (function() {{
+        var idleLimitMs = {SESSION_TIMEOUT_MINUTES} * 60 * 1000;
+        var idleTimer;
+
+        function resetIdleTimer() {{
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(function() {{
+                window.parent.location.reload();
+            }}, idleLimitMs);
+        }}
+
+        ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(
+            function(evt) {{
+                window.parent.document.addEventListener(evt, resetIdleTimer, true);
+            }}
+        );
+
+        resetIdleTimer();
+    }})();
+    </script>
+    ''',
+    height=0
+)
 
 # ==================================================
 # HEADER
@@ -327,7 +405,7 @@ with st.sidebar:
             <p style="margin:0;font-size:10.5px;color:#8A82AD;text-transform:uppercase;
                       letter-spacing:0.08em;font-weight:700;">Signed in as</p>
             <p style="margin:5px 0 0 0;font-size:14.5px;color:#241F47;font-weight:700;">
-                {VALID_USERNAME}
+                {st.session_state.current_user}
             </p>
         </div>
         ''',
