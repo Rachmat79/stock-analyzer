@@ -41,6 +41,111 @@ st.markdown(
 )
 
 # ==================================================
+# LOGIN SYSTEM
+# ==================================================
+VALID_USERNAME = 'rachmat79'
+VALID_PASSWORD = '591979'
+
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+def do_login():
+    input_user = st.session_state.get('login_username', '')
+    input_pass = st.session_state.get('login_password', '')
+
+    if input_user == VALID_USERNAME and input_pass == VALID_PASSWORD:
+        st.session_state.authenticated = True
+        st.session_state.login_error = False
+    else:
+        st.session_state.authenticated = False
+        st.session_state.login_error = True
+
+def do_logout():
+    st.session_state.authenticated = False
+    st.session_state.login_username = ''
+    st.session_state.login_password = ''
+
+if not st.session_state.authenticated:
+
+    st.markdown(
+        '''
+        <style>
+        div[data-testid="stTextInput"] label p {
+            font-size:15px;
+            font-weight:600;
+            color:#1E293B;
+        }
+        div[data-testid="stTextInput"] input {
+            background-color:#EEF2FF;
+            border-radius:12px;
+            border:1px solid #C7D2FE;
+            padding:12px 14px;
+            font-size:15px;
+        }
+        div.stButton > button {
+            background: linear-gradient(135deg,#4338CA,#6366F1);
+            color:white;
+            border:none;
+            border-radius:12px;
+            font-weight:700;
+            padding:10px 0;
+            width:100%;
+        }
+        </style>
+        ''',
+        unsafe_allow_html=True
+    )
+
+    col_left, col_center, col_right = st.columns([1, 1.3, 1])
+
+    with col_center:
+
+        st.markdown(
+            '''
+            <div style="background: linear-gradient(135deg,#312E81,#4338CA,#6366F1);
+                        padding:26px;border-radius:22px;color:white;
+                        margin-top:40px;margin-bottom:28px;text-align:center;">
+                <h2 style="color:white;margin:0;font-size:26px;">🔒 Stock Variance Analyzer</h2>
+                <p style="color:#E0E7FF;margin-top:8px;margin-bottom:0;font-size:14px;">
+                    Silakan login untuk mengakses aplikasi
+                </p>
+            </div>
+            ''',
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            'Username <span style="color:#DC2626;">*</span>',
+            unsafe_allow_html=True
+        )
+        st.text_input(
+            'Username',
+            key='login_username',
+            label_visibility='collapsed',
+            placeholder='Masukkan username'
+        )
+
+        st.markdown(
+            'Password <span style="color:#DC2626;">*</span>',
+            unsafe_allow_html=True
+        )
+        st.text_input(
+            'Password',
+            key='login_password',
+            type='password',
+            label_visibility='collapsed',
+            placeholder='Masukkan password'
+        )
+
+        st.write('')
+        st.button('Login', on_click=do_login)
+
+        if st.session_state.get('login_error'):
+            st.error('Username atau Password salah. Akses ditolak.')
+
+    st.stop()
+
+# ==================================================
 # HEADER
 # ==================================================
 st.markdown(
@@ -58,6 +163,14 @@ st.markdown(
     ''',
     unsafe_allow_html=True
 )
+
+# ==================================================
+# SIDEBAR - USER INFO & LOGOUT
+# ==================================================
+with st.sidebar:
+    st.markdown(f'👤 **Login sebagai:** `{VALID_USERNAME}`')
+    st.button('Logout', on_click=do_logout, use_container_width=True)
+    st.markdown('---')
 
 # ==================================================
 # FORMAT RUPIAH
