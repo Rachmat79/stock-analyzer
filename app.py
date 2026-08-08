@@ -413,7 +413,7 @@ if uploaded_file is not None:
 
         variance_type = st.radio(
             'Variance Type',
-            ['Loss', 'Plus'],
+            ['Loss', 'Plus', '-+'],
             horizontal=True
         )
 
@@ -436,40 +436,88 @@ if uploaded_file is not None:
             ].sort_values(
                 'Stock Take Variance Value',
                 ascending=True
-            )
-        else:
+            ).head(top_n).copy()
+
+        elif variance_type == 'Plus':
             report_df = report_df[
                 report_df['Stock Take Variance Value'] > 0
             ].sort_values(
                 'Stock Take Variance Value',
                 ascending=False
-            )
+            ).head(top_n).copy()
 
-        report_df = report_df.head(top_n).copy()
+        else:
+            # Variance Type '-+' -> gabungan Top Loss dan Top Plus
+            report_loss = report_df[
+                report_df['Stock Take Variance Value'] < 0
+            ].sort_values(
+                'Stock Take Variance Value',
+                ascending=True
+            ).head(top_n).copy()
+
+            report_plus = report_df[
+                report_df['Stock Take Variance Value'] > 0
+            ].sort_values(
+                'Stock Take Variance Value',
+                ascending=False
+            ).head(top_n).copy()
+
+            report_loss['Variance Group'] = 'Loss'
+            report_plus['Variance Group'] = 'Plus'
+
+            report_df = pd.concat(
+                [report_loss, report_plus],
+                ignore_index=True
+            )
 
         report_df.insert(0, 'S/N', range(1, len(report_df) + 1))
 
-        display_df = report_df[
-            [
-                'S/N',
-                'Article',
-                'Article Description',
-                'SOH Qty',
-                'Qty Counted',
-                'Stock Take Variance Qty',
-                'Stock Take Variance Value'
-            ]
-        ].copy()
+        if variance_type == '-+':
+            display_df = report_df[
+                [
+                    'S/N',
+                    'Variance Group',
+                    'Article',
+                    'Article Description',
+                    'SOH Qty',
+                    'Qty Counted',
+                    'Stock Take Variance Qty',
+                    'Stock Take Variance Value'
+                ]
+            ].copy()
 
-        display_df.columns = [
-            'S/N',
-            'Product No.',
-            'Article Description',
-            'SOH',
-            'Counted Qty',
-            'Diff Qty',
-            'Diff Value'
-        ]
+            display_df.columns = [
+                'S/N',
+                'Variance Group',
+                'Product No.',
+                'Article Description',
+                'SOH',
+                'Counted Qty',
+                'Diff Qty',
+                'Diff Value'
+            ]
+        else:
+            display_df = report_df[
+                [
+                    'S/N',
+                    'Article',
+                    'Article Description',
+                    'SOH Qty',
+                    'Qty Counted',
+                    'Stock Take Variance Qty',
+                    'Stock Take Variance Value'
+                ]
+            ].copy()
+
+            display_df.columns = [
+                'S/N',
+                'Product No.',
+                'Article Description',
+                'SOH',
+                'Counted Qty',
+                'Diff Qty',
+                'Diff Value'
+            ]
 
         display_df['Diff Value'] = display_df['Diff Value'].apply(rupiah)
 
