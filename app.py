@@ -108,22 +108,29 @@ st.markdown(
         letter-spacing: 0.08em;
         font-weight: 700 !important;
     }
-    /* Fix: nilai metric (mis. Total Diff Value) tidak lagi terpotong/ellipsis */
-    div[data-testid="stMetricValue"] {
+    /* Fix: nilai metric (mis. Total Diff Value) tidak lagi terpotong/ellipsis.
+       Selector diperkuat (termasuk semua elemen turunan) karena Streamlit
+       kadang menaruh aturan overflow/ellipsis pada elemen anak yang lebih
+       dalam dari yang diperkirakan. */
+    div[data-testid="stMetricValue"],
+    div[data-testid="stMetricValue"] * {
         font-family: 'JetBrains Mono', monospace !important;
         color: #241F47 !important;
         font-weight: 600 !important;
-        font-size: 19px !important;
-        line-height: 1.3 !important;
+        font-size: 17px !important;
+        line-height: 1.25 !important;
         white-space: normal !important;
         overflow: visible !important;
-        text-overflow: clip !important;
+        overflow-wrap: anywhere !important;
+        text-overflow: unset !important;
         word-break: break-word !important;
+        max-width: 100% !important;
     }
-    div[data-testid="stMetricValue"] > div {
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
+    div[data-testid="stMetric"] {
+        min-width: 0 !important;
+    }
+    div[data-testid="column"] {
+        min-width: 0 !important;
     }
 
     /* ---------- Tabs ---------- */
@@ -205,7 +212,7 @@ st.markdown(
 # ==================================================
 VALID_USERS = {
     'rachmat79': '591979',
-    'stockhrn': '12345'
+    'optimus': '12345'
 }
 
 if 'authenticated' not in st.session_state:
