@@ -421,12 +421,356 @@ def rupiah(x):
     return f'Rp {x:,.0f}'
 
 # ==================================================
+# STOCK RECONCILIATION ENGINE
+# ==================================================
+# Implementasi mengikuti "1. TUJUAN UTAMA PROGRAM.txt" yang dilampirkan.
+#
+# CATATAN PENTING - baca ini dulu sebelum mengubah logika di bawah:
+#
+#   [CONFIRMED RULE]  Diambil persis sesuai spesifikasi:
+#     - Sign reversal detection (P1>0 & P2<0, atau sebaliknya)
+#     - Mirror/opposite value detection (dengan tolerance)
+#     - New item / Missing item -> REQUIRES_REVIEW, bukan otomatis error
+#     - Duplicate item detection dalam satu periode
+#     - Risk scoring 0-100 dengan klasifikasi NORMAL/LOW/MEDIUM/HIGH/CRITICAL
+#     - Percentage change = 0 saat Qty_P1 = 0 dihindari (pakai status khusus)
+#
+#   [ASSUMPTION - karena skema data app ini tidak punya kolom terpisah
+#    untuk SKU/Barcode/UOM/Batch]:
+#     - "Item Code" memakai kolom `Article` yang sudah ada di data
+#     - Matching key = kombinasi (Store + Article), BUKAN Article saja.
+#       Alasan: data di app ini per toko, kalau hanya pakai Article maka
+#       item yang sama di toko berbeda akan tercampur jadi satu baris.
+#       -> Kalau ternyata rekonsiliasi yang diinginkan LINTAS TOKO
+#          (agregat semua toko), beri tahu saya, logikanya bisa diubah.
+#     - Kolom UOM tidak tersedia -> UOM_MISMATCH TIDAK diimplementasikan
+#       di versi ini (lihat REQUIRES USER CONFIRMATION di bawah)
+#
+#   [CONFIGURABLE RULE - nilai default di bawah, bisa diubah lewat UI
+#    "⚙️ Konfigurasi Reconciliation" di dalam tab Stock Reconciliation]:
+#     - Threshold variance % (LOW/MEDIUM/HIGH/CRITICAL)
+#     - Materiality threshold (variance absolut minimum supaya dianggap
+#       signifikan, mencegah item kecil dengan %change besar tapi
+#       absolut kecil ikut ditandai CRITICAL)
+#     - Mirror tolerance
+#     - Bobot risk scoring per jenis flag
+#     - Kolom quantity yang direkonsiliasi (Stock Take Variance Qty /
+#       SOH Qty / Qty Counted)
+#
+#   [REQUIRES USER CONFIRMATION / FUTURE DEVELOPMENT - belum
+#    diimplementasikan di versi ini, butuh keputusan bisnis dulu]:
+#     - UOM control & conversion factor (kolom UOM belum ada di data)
+#     - Cross-period 3+ (P3, P4, P5, dst) & Historical Z-Score anomaly
+#       (baru bisa jalan kalau ada riwayat >=3 periode tersimpan)
+#     - Audit trail permanen ke database (saat ini traceability hanya
+#       sebatas nama file + nomor baris asli, disimpan di sesi berjalan)
+#     - Export ke PDF & dashboard terpisah (saat ini export ke Excel)
+#     - Machine learning anomaly detection
+#
+RECON_REQUIRED_COLS = [
+    'Store', 'Category', 'Article', 'Article Description',
+    'SOH Qty', 'Qty Counted',
+    'Stock Take Variance Qty', 'Stock Take Variance Value'
+]
+
+RECON_NUMERIC_COLS = [
+    'SOH Qty', 'Qty Counted',
+    'Stock Take Variance Qty', 'Stock Take Variance Value'
+]
+
+
+def load_and_validate_recon_file(uploaded, source_label):
+    '''Baca & validasi file (dipakai untuk file periode saat ini maupun
+    periode sebelumnya), tanpa mengubah file sumber asli (raw tetap utuh,
+    hasil cleaning disimpan di dataframe baru).'''
+
+    if uploaded.name.lower().endswith('.csv'):
+        df = pd.read_csv(uploaded, sep=None, engine='python')
+    else:
+        df = pd.read_excel(uploaded)
+
+    missing = [c for c in RECON_REQUIRED_COLS if c not in df.columns]
+    if missing:
+        st.error(f'[{source_label}] Kolom belum ditemukan: {missing}')
+        st.write('Kolom yang tersedia:', df.columns.tolist())
+        st.stop()
+
+    df = df.copy()
+    df['__SourceFile__'] = uploaded.name
+    df['__SourceRow__'] = df.index + 2  # +2 asumsi row 1 = header di Excel
+
+    for col in RECON_NUMERIC_COLS:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    return df
+
+
+def recon_data_quality_report(df, label):
+    '''Section 19 - Data Validation, sebelum data masuk perhitungan.'''
+    issues = []
+
+    n_missing_article = df['Article'].isna().sum() + (df['Article'].astype(str).str.strip() == '').sum()
+    n_missing_desc = df['Article Description'].isna().sum() + (df['Article Description'].astype(str).str.strip() == '').sum()
+    n_missing_store = df['Store'].isna().sum() + (df['Store'].astype(str).str.strip() == '').sum()
+
+    for col in RECON_NUMERIC_COLS:
+        n_invalid = df[col].isna().sum()
+        if n_invalid > 0:
+            issues.append({
+                'Periode': label,
+                'Isu': f'Nilai bukan angka / kosong pada kolom "{col}"',
+                'Jumlah Baris': int(n_invalid)
+            })
+
+    if n_missing_article > 0:
+        issues.append({'Periode': label, 'Isu': 'Article (Item Code) kosong', 'Jumlah Baris': int(n_missing_article)})
+    if n_missing_desc > 0:
+        issues.append({'Periode': label, 'Isu': 'Article Description kosong', 'Jumlah Baris': int(n_missing_desc)})
+    if n_missing_store > 0:
+        issues.append({'Periode': label, 'Isu': 'Store kosong', 'Jumlah Baris': int(n_missing_store)})
+
+    dup_key_check = (
+        df['Store'].astype(str).str.strip().str.upper() + '||' +
+        df['Article'].astype(str).str.strip().str.upper()
+    )
+    n_dup_rows = dup_key_check.duplicated(keep=False).sum()
+    if n_dup_rows > 0:
+        issues.append({'Periode': label, 'Isu': 'Baris dengan Store+Article duplikat', 'Jumlah Baris': int(n_dup_rows)})
+
+    return issues
+
+
+def build_match_key(df):
+    return (
+        df['Store'].astype(str).str.strip().str.upper() + '||' +
+        df['Article'].astype(str).str.strip().str.upper()
+    )
+
+
+def prepare_recon_period(df, period_label, qty_col):
+    '''Normalisasi + agregasi duplikat untuk satu periode (Section 3 & 9).'''
+    d = df.copy()
+    d[RECON_NUMERIC_COLS] = d[RECON_NUMERIC_COLS].fillna(0)
+    d['__MatchKey__'] = build_match_key(d)
+
+    dup_counts = d.groupby('__MatchKey__').size()
+    dup_keys = set(dup_counts[dup_counts > 1].index)
+
+    agg = d.groupby('__MatchKey__').agg(
+        Store=('Store', 'first'),
+        Article=('Article', 'first'),
+        ArticleDescription=('Article Description', 'first'),
+        Category=('Category', 'first'),
+        Qty=(qty_col, 'sum'),
+        RowCount=(qty_col, 'count'),
+        SourceFile=('__SourceFile__', 'first'),
+        SourceRow=('__SourceRow__', lambda x: ', '.join(map(str, x)))
+    ).reset_index()
+
+    agg['Duplicate'] = agg['__MatchKey__'].isin(dup_keys)
+    agg = agg.rename(columns={
+        'Qty': f'Qty_{period_label}',
+        'RowCount': f'RowCount_{period_label}',
+        'Duplicate': f'Duplicate_{period_label}',
+        'SourceFile': f'SourceFile_{period_label}',
+        'SourceRow': f'SourceRow_{period_label}'
+    })
+
+    return agg
+
+
+def run_reconciliation(df_p1, df_p2, qty_col, config):
+    '''Engine utama: matching -> variance calc -> anomaly detection -> risk scoring.
+    Mengikuti alur modular Section 24 (Matching -> Reconciliation -> Variance
+    -> Anomaly Detection -> Risk Scoring -> Classification).'''
+
+    p1_agg = prepare_recon_period(df_p1, 'P1', qty_col)
+    p2_agg = prepare_recon_period(df_p2, 'P2', qty_col)
+
+    merged = pd.merge(
+        p1_agg, p2_agg,
+        on='__MatchKey__', how='outer', suffixes=('_p1', '_p2')
+    )
+
+    for base_col in ['Store', 'Article', 'ArticleDescription', 'Category']:
+        merged[base_col] = merged[f'{base_col}_p1'].fillna(merged[f'{base_col}_p2'])
+
+    merged['Status_Exist'] = 'BOTH'
+    merged.loc[merged['Qty_P1'].isna(), 'Status_Exist'] = 'NEW_IN_P2'
+    merged.loc[merged['Qty_P2'].isna(), 'Status_Exist'] = 'MISSING_IN_P2'
+
+    merged['Qty_P1'] = merged['Qty_P1'].fillna(0)
+    merged['Qty_P2'] = merged['Qty_P2'].fillna(0)
+
+    merged['Change'] = merged['Qty_P2'] - merged['Qty_P1']
+    merged['Abs_Variance'] = merged['Change'].abs()
+
+    def _pct(row):
+        if row['Qty_P1'] == 0:
+            return None
+        return (row['Change'] / abs(row['Qty_P1'])) * 100
+
+    merged['Pct_Change'] = merged.apply(_pct, axis=1)
+
+    # ---- Section 5: Sign Reversal ----
+    merged['Sign_Reversal'] = (
+        ((merged['Qty_P1'] > 0) & (merged['Qty_P2'] < 0)) |
+        ((merged['Qty_P1'] < 0) & (merged['Qty_P2'] > 0))
+    )
+
+    # ---- Section 6: Mirror / Opposite Value ----
+    merged['Mirror_Value'] = (
+        ((merged['Qty_P1'] + merged['Qty_P2']).abs() <= config['mirror_tolerance']) &
+        (merged['Qty_P1'] != 0) & (merged['Qty_P2'] != 0)
+    )
+
+    # ---- Section 7: Extreme Variance (percentage + absolute + materiality) ----
+    def _bucket(pct):
+        if pct is None:
+            return 'N/A'
+        p = abs(pct)
+        if p < config['thr_low']:
+            return 'LOW'
+        elif p < config['thr_medium']:
+            return 'MEDIUM'
+        elif p < config['thr_high']:
+            return 'HIGH'
+        return 'CRITICAL'
+
+    merged['Variance_Bucket'] = merged['Pct_Change'].apply(_bucket)
+    merged['Extreme_Variance_Flag'] = (
+        merged['Variance_Bucket'].isin(['HIGH', 'CRITICAL']) &
+        (merged['Abs_Variance'] >= config['materiality'])
+    )
+
+    # ---- Section 9: Duplicate ----
+    merged['Duplicate_P1'] = merged['Duplicate_P1'].fillna(False)
+    merged['Duplicate_P2'] = merged['Duplicate_P2'].fillna(False)
+    merged['Duplicate_Flag'] = merged['Duplicate_P1'] | merged['Duplicate_P2']
+
+    # ---- Section 13: Risk Scoring ----
+    def _score_and_reasons(row):
+        score = 0
+        reasons = []
+
+        if row['Sign_Reversal']:
+            score += config['w_sign_reversal']
+            reasons.append('Sign reversal — tanda quantity berbalik (+/-) antar periode')
+
+        if row['Mirror_Value']:
+            score += config['w_mirror']
+            reasons.append('Possible mirror value — P2 mendekati kebalikan dari P1')
+
+        if row['Extreme_Variance_Flag']:
+            score += config['w_variance']
+            reasons.append(f"Variance ekstrem ({row['Variance_Bucket']}) dan signifikan secara absolut")
+
+        if row['Duplicate_Flag']:
+            score += config['w_duplicate']
+            reasons.append('Item duplikat terdeteksi (Store+Article muncul lebih dari 1x pada periode yang sama)')
+
+        if row['Status_Exist'] == 'NEW_IN_P2':
+            score += config['w_new']
+            reasons.append('Item baru — tidak ditemukan pada periode sebelumnya')
+
+        if row['Status_Exist'] == 'MISSING_IN_P2':
+            score += config['w_missing']
+            reasons.append('Item hilang — ada di periode sebelumnya, tidak ada di periode saat ini')
+
+        score = min(score, 100)
+
+        if not reasons:
+            reasons.append('Tidak ada pola tidak normal terdeteksi (normal movement)')
+
+        return pd.Series({'Risk_Score': score, 'Reasons': reasons})
+
+    score_df = merged.apply(_score_and_reasons, axis=1)
+    merged = pd.concat([merged, score_df], axis=1)
+
+    def _risk_level(score):
+        if score >= 80:
+            return 'CRITICAL'
+        elif score >= 60:
+            return 'HIGH'
+        elif score >= 40:
+            return 'MEDIUM'
+        elif score >= 20:
+            return 'LOW'
+        return 'NORMAL'
+
+    merged['Risk_Level'] = merged['Risk_Score'].apply(_risk_level)
+
+    # ---- Section 23: Classification ----
+    def _classify(row):
+        if row['Status_Exist'] in ('NEW_IN_P2', 'MISSING_IN_P2'):
+            return 'BUSINESS_CHANGE (Requires Review)'
+        if row['Sign_Reversal'] or row['Mirror_Value']:
+            return 'ANOMALY'
+        if row['Duplicate_Flag']:
+            return 'DATA_QUALITY_ERROR (Duplicate)'
+        if row['Extreme_Variance_Flag']:
+            return 'ANOMALY (Extreme Variance)'
+        return 'NORMAL_MOVEMENT'
+
+    merged['Classification'] = merged.apply(_classify, axis=1)
+
+    # ---- Section 16: Recommended Action ----
+    def _recommend(row):
+        if row['Sign_Reversal'] or row['Mirror_Value']:
+            return 'Review dokumen stock opname P1 & P2, lakukan physical count ulang untuk item ini.'
+        if row['Duplicate_Flag']:
+            return 'Periksa apakah duplikasi valid (lokasi/baris berbeda yang sah) atau kesalahan input berganda.'
+        if row['Status_Exist'] == 'NEW_IN_P2':
+            return 'Konfirmasi ke tim toko: item baru resmi, atau kesalahan mapping/Article Code.'
+        if row['Status_Exist'] == 'MISSING_IN_P2':
+            return 'Konfirmasi ke tim toko: item discontinued, pindah lokasi, atau terlewat saat stock opname.'
+        if row['Extreme_Variance_Flag']:
+            return 'Telusuri histori pergerakan stok item ini, pastikan bukan kesalahan input/adjustment.'
+        return 'Tidak perlu tindakan lanjutan.'
+
+    merged['Recommended_Action'] = merged.apply(_recommend, axis=1)
+
+    merged = merged.rename(columns={'ArticleDescription': 'Article Description'})
+
+    return merged
+
+
+def build_reconciliation_summary(merged):
+    '''Section 15 - Reconciliation Summary.'''
+    return {
+        'Total Item Periode Sebelumnya (P1)': int((merged['Status_Exist'] != 'NEW_IN_P2').sum()),
+        'Total Item Periode Saat Ini (P2)': int((merged['Status_Exist'] != 'MISSING_IN_P2').sum()),
+        'Item di Kedua Periode': int((merged['Status_Exist'] == 'BOTH').sum()),
+        'Item Baru (New in P2)': int((merged['Status_Exist'] == 'NEW_IN_P2').sum()),
+        'Item Hilang (Missing in P2)': int((merged['Status_Exist'] == 'MISSING_IN_P2').sum()),
+        'Normal': int((merged['Risk_Level'] == 'NORMAL').sum()),
+        'Low Risk': int((merged['Risk_Level'] == 'LOW').sum()),
+        'Medium Risk': int((merged['Risk_Level'] == 'MEDIUM').sum()),
+        'High Risk': int((merged['Risk_Level'] == 'HIGH').sum()),
+        'Critical Risk': int((merged['Risk_Level'] == 'CRITICAL').sum()),
+        'Sign Reversal': int(merged['Sign_Reversal'].sum()),
+        'Mirror Value': int(merged['Mirror_Value'].sum()),
+        'Duplicate': int(merged['Duplicate_Flag'].sum()),
+    }
+
+# ==================================================
 # UPLOAD FILE
 # ==================================================
-uploaded_file = st.file_uploader(
-    'Upload file stock take (Excel atau CSV)',
-    type=['xlsx', 'csv']
-)
+col_upload_current, col_upload_prev = st.columns(2)
+
+with col_upload_current:
+    uploaded_file = st.file_uploader(
+        'Upload file stock take (Excel atau CSV)',
+        type=['xlsx', 'csv'],
+        key='uploader_current_period'
+    )
+
+with col_upload_prev:
+    uploaded_file_prev = st.file_uploader(
+        'Upload file stock take periode sebelumnya (opsional — untuk Stock Reconciliation)',
+        type=['xlsx', 'csv'],
+        key='uploader_previous_period'
+    )
 
 if uploaded_file is not None:
 
@@ -465,9 +809,23 @@ if uploaded_file is not None:
     for col in numeric_cols:
         raw_df[col] = pd.to_numeric(raw_df[col], errors='coerce').fillna(0)
 
-    tab_dashboard, tab_report = st.tabs([
+    # File periode sebelumnya (untuk tab Stock Reconciliation)
+    raw_df_prev = None
+    if uploaded_file_prev is not None:
+        raw_df_prev = load_and_validate_recon_file(uploaded_file_prev, 'Periode Sebelumnya')
+
+    # Baca ulang file periode saat ini khusus untuk reconciliation engine
+    # (perlu versi dengan NaN asli + metadata source file/baris, berbeda
+    # dari `raw_df` di atas yang NaN-nya sudah di-fillna(0) untuk dashboard)
+    raw_df_current_recon = None
+    if uploaded_file_prev is not None:
+        uploaded_file.seek(0)
+        raw_df_current_recon = load_and_validate_recon_file(uploaded_file, 'Periode Saat Ini')
+
+    tab_dashboard, tab_report, tab_reconciliation = st.tabs([
         'Executive Dashboard',
-        'Stock Variance Report'
+        'Stock Variance Report',
+        'Stock Reconciliation'
     ])
     # ==================================================
     # EXECUTIVE DASHBOARD
@@ -1010,6 +1368,379 @@ if uploaded_file is not None:
             file_name='Stock_Variance_Report.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+
+    # ==================================================
+    # STOCK RECONCILIATION
+    # ==================================================
+    with tab_reconciliation:
+
+        st.markdown(
+            '''
+            <div class="glass-panel" style="padding:18px 24px;margin-bottom:22px;">
+                <p style="color:#A855F7;font-size:11px;font-weight:700;letter-spacing:0.14em;
+                          text-transform:uppercase;margin:0 0 6px 0;">Multi-Period Analysis</p>
+                <h2 style="margin:0;font-size:22px;font-weight:800;color:#241F47;">
+                    Stock Reconciliation
+                </h2>
+                <p style="margin:8px 0 0 0;color:#6D6690;font-size:13.5px;">
+                    Deteksi anomali antar periode: sign reversal, mirror value,
+                    variance ekstrem, item baru/hilang, dan duplikasi.
+                </p>
+            </div>
+            ''',
+            unsafe_allow_html=True
+        )
+
+        if raw_df_prev is None:
+            st.info(
+                '📤 Upload **"file stock take periode sebelumnya"** di kotak upload '
+                'kedua (bagian paling atas halaman) untuk mengaktifkan analisa '
+                'Stock Reconciliation.'
+            )
+        else:
+
+            with st.expander('⚙️ Konfigurasi Reconciliation'):
+
+                qty_col_options = {
+                    'Stock Take Variance Qty': 'Stock Take Variance Qty',
+                    'SOH Qty': 'SOH Qty',
+                    'Qty Counted': 'Qty Counted'
+                }
+                qty_col_label = st.selectbox(
+                    'Kolom quantity yang direkonsiliasi antar periode',
+                    list(qty_col_options.keys()),
+                    index=0,
+                    help='Default: Stock Take Variance Qty (paling relevan untuk '
+                         'mendeteksi anomali stock opname). Bisa diganti sesuai kebutuhan.'
+                )
+                qty_col = qty_col_options[qty_col_label]
+
+                st.markdown('**Threshold Variance (%)**')
+                cfg1, cfg2, cfg3 = st.columns(3)
+                with cfg1:
+                    thr_low = st.number_input('Batas LOW (%)', value=10.0, min_value=0.0)
+                with cfg2:
+                    thr_medium = st.number_input('Batas MEDIUM (%)', value=25.0, min_value=0.0)
+                with cfg3:
+                    thr_high = st.number_input('Batas HIGH (%) — di atasnya = CRITICAL', value=50.0, min_value=0.0)
+
+                cfg4, cfg5 = st.columns(2)
+                with cfg4:
+                    materiality = st.number_input(
+                        'Materiality threshold (variance absolut minimum)',
+                        value=50.0, min_value=0.0,
+                        help='Item dengan %variance tinggi TAPI variance absolut di '
+                             'bawah angka ini tidak akan ditandai sebagai variance ekstrem.'
+                    )
+                with cfg5:
+                    mirror_tolerance = st.number_input(
+                        'Mirror tolerance', value=0.0, min_value=0.0,
+                        help='Toleransi selisih agar P2 dianggap "mendekati kebalikan" dari P1.'
+                    )
+
+                st.markdown('**Bobot Risk Scoring** (total dibatasi maksimum 100)')
+                wcol1, wcol2, wcol3 = st.columns(3)
+                with wcol1:
+                    w_sign = st.number_input('Sign Reversal', value=40, min_value=0)
+                    w_mirror = st.number_input('Mirror Value', value=30, min_value=0)
+                with wcol2:
+                    w_variance = st.number_input('Extreme Variance', value=20, min_value=0)
+                    w_duplicate = st.number_input('Duplicate', value=20, min_value=0)
+                with wcol3:
+                    w_new = st.number_input('New Item', value=10, min_value=0)
+                    w_missing = st.number_input('Missing Item', value=15, min_value=0)
+
+            config = {
+                'thr_low': thr_low, 'thr_medium': thr_medium, 'thr_high': thr_high,
+                'materiality': materiality, 'mirror_tolerance': mirror_tolerance,
+                'w_sign_reversal': w_sign, 'w_mirror': w_mirror, 'w_variance': w_variance,
+                'w_duplicate': w_duplicate, 'w_new': w_new, 'w_missing': w_missing
+            }
+
+            # ---- Data Quality Report (Section 19) ----
+            dq_issues = (
+                recon_data_quality_report(raw_df_prev, 'Periode Sebelumnya (P1)') +
+                recon_data_quality_report(raw_df_current_recon, 'Periode Saat Ini (P2)')
+            )
+
+            with st.expander(
+                f'🔍 Data Quality Report ({len(dq_issues)} isu ditemukan)',
+                expanded=(len(dq_issues) > 0)
+            ):
+                if dq_issues:
+                    st.dataframe(
+                        pd.DataFrame(dq_issues),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    st.caption(
+                        'Data tetap diproses meski ada isu di atas — mohon divalidasi '
+                        'sebelum mengambil kesimpulan final.'
+                    )
+                else:
+                    st.success('Tidak ada isu kualitas data terdeteksi pada kedua periode.')
+
+            # ---- Run Engine ----
+            merged = run_reconciliation(raw_df_prev, raw_df_current_recon, qty_col, config)
+            summary = build_reconciliation_summary(merged)
+
+            st.markdown('### 📊 Reconciliation Summary')
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric('Total Item (P1)', f"{summary['Total Item Periode Sebelumnya (P1)']:,}")
+            k2.metric('Total Item (P2)', f"{summary['Total Item Periode Saat Ini (P2)']:,}")
+            k3.metric('Item Baru (New)', f"{summary['Item Baru (New in P2)']:,}")
+            k4.metric('Item Hilang (Missing)', f"{summary['Item Hilang (Missing in P2)']:,}")
+
+            k5, k6, k7, k8 = st.columns(4)
+            k5.metric('Sign Reversal', f"{summary['Sign Reversal']:,}")
+            k6.metric('Mirror Value', f"{summary['Mirror Value']:,}")
+            k7.metric('Duplicate', f"{summary['Duplicate']:,}")
+            k8.metric('Critical Risk', f"{summary['Critical Risk']:,}")
+
+            st.markdown('---')
+
+            st.markdown('### 🥧 Distribusi Risk Level')
+
+            risk_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NORMAL']
+            risk_counts = (
+                merged['Risk_Level'].value_counts()
+                .reindex(risk_order)
+                .fillna(0)
+                .astype(int)
+                .reset_index()
+            )
+            risk_counts.columns = ['Risk Level', 'Jumlah Item']
+
+            fig_risk = px.bar(
+                risk_counts,
+                x='Risk Level',
+                y='Jumlah Item',
+                text='Jumlah Item',
+                color='Risk Level',
+                color_discrete_map={
+                    'CRITICAL': '#DC2626',
+                    'HIGH': '#FB7185',
+                    'MEDIUM': '#F59E0B',
+                    'LOW': '#A855F7',
+                    'NORMAL': '#34D399'
+                },
+                category_orders={'Risk Level': risk_order}
+            )
+            fig_risk.update_traces(textposition='outside')
+            fig_risk.update_layout(
+                showlegend=False,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#4B4468', family='Manrope'),
+                xaxis=dict(gridcolor='rgba(147,51,234,0.10)'),
+                yaxis=dict(gridcolor='rgba(147,51,234,0.10)')
+            )
+            st.plotly_chart(fig_risk, use_container_width=True)
+
+            st.markdown('---')
+
+            st.markdown('### 📈 Top 20 Absolute Variance')
+
+            top20_abs = merged.sort_values('Abs_Variance', ascending=False).head(20)
+
+            if not top20_abs.empty:
+                fig_top20 = px.bar(
+                    top20_abs,
+                    x='Abs_Variance',
+                    y='Article Description',
+                    orientation='h',
+                    text='Abs_Variance',
+                    color_discrete_sequence=['#7C3AED']
+                )
+                fig_top20.update_traces(texttemplate='%{x:,.0f}', textposition='outside')
+                fig_top20.update_layout(
+                    height=600,
+                    showlegend=False,
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='#4B4468', family='Manrope'),
+                    xaxis=dict(gridcolor='rgba(147,51,234,0.10)'),
+                    yaxis=dict(gridcolor='rgba(147,51,234,0.05)')
+                )
+                st.plotly_chart(fig_top20, use_container_width=True)
+
+            st.markdown('---')
+
+            sr_df = merged[merged['Sign_Reversal'] | merged['Mirror_Value']]
+
+            st.markdown(f'### 🔴 Sign Reversal & Mirror Value ({len(sr_df)} item)')
+
+            if not sr_df.empty:
+                sr_display = sr_df[[
+                    'Store', 'Article', 'Article Description',
+                    'Qty_P1', 'Qty_P2', 'Change', 'Risk_Level', 'Risk_Score'
+                ]].sort_values('Risk_Score', ascending=False).copy()
+
+                sr_display.columns = [
+                    'Store', 'Article', 'Article Description',
+                    'P1 Qty', 'P2 Qty', 'Change', 'Risk Level', 'Score'
+                ]
+
+                st.dataframe(
+                    sr_display,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        'Store': st.column_config.TextColumn(width=170),
+                        'Article': st.column_config.TextColumn(width=80),
+                        'Article Description': st.column_config.TextColumn(width=220),
+                        'P1 Qty': st.column_config.NumberColumn(width=90),
+                        'P2 Qty': st.column_config.NumberColumn(width=90),
+                        'Change': st.column_config.NumberColumn(width=90),
+                        'Risk Level': st.column_config.TextColumn(width=100),
+                        'Score': st.column_config.NumberColumn(width=70)
+                    }
+                )
+            else:
+                st.success('Tidak ada item dengan sign reversal / mirror value pada konfigurasi saat ini.')
+
+            st.markdown('---')
+
+            st.markdown('### 📋 Exception Detail Report')
+
+            risk_filter = st.multiselect(
+                'Filter Risk Level',
+                risk_order,
+                default=['CRITICAL', 'HIGH', 'MEDIUM']
+            )
+
+            exception_df = merged[merged['Risk_Level'].isin(risk_filter)].copy()
+
+            risk_order_map = {level: i for i, level in enumerate(risk_order)}
+            exception_df['__sort__'] = exception_df['Risk_Level'].map(risk_order_map)
+            exception_df = exception_df.sort_values(
+                ['__sort__', 'Abs_Variance'],
+                ascending=[True, False]
+            )
+
+            if not exception_df.empty:
+                display_exception = exception_df[[
+                    'Risk_Level', 'Risk_Score', 'Store', 'Article', 'Article Description',
+                    'Qty_P1', 'Qty_P2', 'Change', 'Pct_Change', 'Classification', 'Status_Exist'
+                ]].copy()
+
+                display_exception.columns = [
+                    'Risk', 'Score', 'Store', 'Article', 'Article Description',
+                    'P1 Qty', 'P2 Qty', 'Change', '% Change', 'Classification', 'Status'
+                ]
+
+                display_exception['% Change'] = display_exception['% Change'].apply(
+                    lambda x: f'{x:,.1f}%' if pd.notna(x) else 'N/A'
+                )
+
+                tbl_height = min(int(35.2 * (len(display_exception) + 1)) + 3, 700)
+
+                st.dataframe(
+                    display_exception,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=tbl_height
+                )
+                st.caption(
+                    f'Menampilkan {len(display_exception):,} item, diurutkan dari risiko '
+                    'tertinggi lalu variance absolut terbesar.'
+                )
+            else:
+                st.info('Tidak ada item pada filter Risk Level yang dipilih.')
+
+            st.markdown('---')
+
+            st.markdown('### 🔍 Detail Investigasi per Item')
+
+            if not exception_df.empty:
+                exception_df['__label__'] = (
+                    exception_df['Store'].astype(str) + ' | ' +
+                    exception_df['Article'].astype(str) + ' - ' +
+                    exception_df['Article Description'].astype(str)
+                )
+
+                selected_label = st.selectbox(
+                    'Pilih item untuk melihat detail investigasi',
+                    exception_df['__label__'].tolist()
+                )
+
+                row = exception_df[exception_df['__label__'] == selected_label].iloc[0]
+
+                pct_display = (
+                    f"{row['Pct_Change']:.1f}%" if pd.notna(row['Pct_Change'])
+                    else 'N/A (Qty Periode Sebelumnya = 0)'
+                )
+
+                reasons_html = ''.join(f'<li>{r}</li>' for r in row['Reasons'])
+
+                st.markdown(
+                    f'''
+                    <div class="glass-panel" style="padding:22px 26px;">
+                        <p style="margin:0 0 4px 0;color:#8A82AD;font-size:11px;
+                                  text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">
+                            Item
+                        </p>
+                        <h3 style="margin:0 0 14px 0;color:#241F47;">
+                            {row['Article']} — {row['Article Description']}
+                        </h3>
+                        <p style="color:#4B4468;"><b>Store:</b> {row['Store']}</p>
+                        <p style="color:#4B4468;"><b>Qty Periode Sebelumnya (P1):</b> {row['Qty_P1']:,.0f}</p>
+                        <p style="color:#4B4468;"><b>Qty Periode Saat Ini (P2):</b> {row['Qty_P2']:,.0f}</p>
+                        <p style="color:#4B4468;"><b>Variance:</b> {row['Change']:,.0f} ({pct_display})</p>
+                        <p style="color:#4B4468;"><b>Klasifikasi:</b> {row['Classification']}</p>
+                        <p style="color:#4B4468;">
+                            <b>Risk Score:</b> {row['Risk_Score']}/100 —
+                            <b>{row['Risk_Level']}</b>
+                        </p>
+                        <p style="margin-top:14px;color:#4B4468;"><b>Kemungkinan Penyebab:</b></p>
+                        <ul style="color:#4B4468;">{reasons_html}</ul>
+                        <p style="color:#4B4468;">
+                            <b>Rekomendasi Tindakan:</b> {row['Recommended_Action']}
+                        </p>
+                        <p style="margin-top:14px;color:#948FB0;font-size:12px;">
+                            Sumber P1: {row['SourceFile_P1']} (baris {row['SourceRow_P1']}) &nbsp;•&nbsp;
+                            Sumber P2: {row['SourceFile_P2']} (baris {row['SourceRow_P2']})
+                        </p>
+                    </div>
+                    ''',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.info('Tidak ada item pada filter Risk Level yang dipilih untuk diinvestigasi.')
+
+            st.markdown('---')
+
+            st.markdown('### 📥 Export Hasil Reconciliation')
+
+            merged_export = merged.drop(columns=['__MatchKey__']).copy()
+            merged_export['Reasons'] = merged_export['Reasons'].apply(lambda r: '; '.join(r))
+
+            exception_export = exception_df.drop(
+                columns=['__MatchKey__', '__sort__', '__label__'],
+                errors='ignore'
+            ).copy()
+            if 'Reasons' in exception_export.columns:
+                exception_export['Reasons'] = exception_export['Reasons'].apply(
+                    lambda r: '; '.join(r) if isinstance(r, list) else r
+                )
+
+            recon_output = BytesIO()
+            with pd.ExcelWriter(recon_output, engine='openpyxl') as writer:
+                merged_export.to_excel(writer, sheet_name='Reconciliation Detail', index=False)
+                exception_export.to_excel(writer, sheet_name='Exception Report', index=False)
+                if dq_issues:
+                    pd.DataFrame(dq_issues).to_excel(writer, sheet_name='Data Quality Report', index=False)
+                pd.DataFrame(
+                    list(summary.items()), columns=['Metric', 'Result']
+                ).to_excel(writer, sheet_name='Management Summary', index=False)
+
+            st.download_button(
+                label='Download Reconciliation Report (Excel)',
+                data=recon_output.getvalue(),
+                file_name='Stock_Reconciliation_Report.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
 
 # ==================================================
 # FOOTER
