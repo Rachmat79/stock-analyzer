@@ -1622,17 +1622,13 @@ if uploaded_file is not None:
             if not exception_df.empty:
                 display_exception = exception_df[[
                     'Risk_Level', 'Risk_Score', 'Store', 'Article', 'Article Description',
-                    'Qty_P1', 'Qty_P2', 'Change', 'Pct_Change', 'Classification', 'Status_Exist'
+                    'Qty_P1', 'Qty_P2', 'Change', 'Classification', 'Status_Exist'
                 ]].copy()
 
                 display_exception.columns = [
                     'Risk', 'Score', 'Store', 'Article', 'Article Description',
-                    'P1 Qty', 'P2 Qty', 'Change', '% Change', 'Classification', 'Status'
+                    'P1 Qty', 'P2 Qty', 'Change', 'Classification', 'Status'
                 ]
-
-                display_exception['% Change'] = display_exception['% Change'].apply(
-                    lambda x: f'{x:,.1f}%' if pd.notna(x) else 'N/A'
-                )
 
                 tbl_height = min(int(35.2 * (len(display_exception) + 1)) + 3, 700)
 
