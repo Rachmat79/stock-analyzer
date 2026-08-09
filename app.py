@@ -759,17 +759,37 @@ def build_reconciliation_summary(merged):
 col_upload_current, col_upload_prev = st.columns(2)
 
 with col_upload_current:
+    st.markdown(
+        '''
+        <div style="height:48px;display:flex;align-items:flex-end;margin-bottom:4px;">
+            <span style="font-size:14px;color:#4B4468;">Upload file stock take (Excel atau CSV)</span>
+        </div>
+        ''',
+        unsafe_allow_html=True
+    )
     uploaded_file = st.file_uploader(
-        'Upload file stock take (Excel atau CSV)',
+        'Upload file stock take',
         type=['xlsx', 'csv'],
-        key='uploader_current_period'
+        key='uploader_current_period',
+        label_visibility='collapsed'
     )
 
 with col_upload_prev:
+    st.markdown(
+        '''
+        <div style="height:48px;display:flex;align-items:flex-end;margin-bottom:4px;">
+            <span style="font-size:14px;color:#4B4468;line-height:1.3;">
+                Upload file stock take periode sebelumnya (opsional — untuk Stock Reconciliation)
+            </span>
+        </div>
+        ''',
+        unsafe_allow_html=True
+    )
     uploaded_file_prev = st.file_uploader(
-        'Upload file stock take periode sebelumnya (opsional — untuk Stock Reconciliation)',
+        'Upload file stock take periode sebelumnya',
         type=['xlsx', 'csv'],
-        key='uploader_previous_period'
+        key='uploader_previous_period',
+        label_visibility='collapsed'
     )
 
 if uploaded_file is not None:
