@@ -1567,33 +1567,6 @@ if uploaded_file is not None:
 
             st.markdown('---')
 
-            st.markdown('### 📈 Top 20 Absolute Variance')
-
-            top20_abs = merged.sort_values('Abs_Variance', ascending=False).head(20)
-
-            if not top20_abs.empty:
-                fig_top20 = px.bar(
-                    top20_abs,
-                    x='Abs_Variance',
-                    y='Article Description',
-                    orientation='h',
-                    text='Abs_Variance',
-                    color_discrete_sequence=['#7C3AED']
-                )
-                fig_top20.update_traces(texttemplate='%{x:,.0f}', textposition='outside')
-                fig_top20.update_layout(
-                    height=600,
-                    showlegend=False,
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='#4B4468', family='Manrope'),
-                    xaxis=dict(gridcolor='rgba(147,51,234,0.10)'),
-                    yaxis=dict(gridcolor='rgba(147,51,234,0.05)')
-                )
-                st.plotly_chart(fig_top20, use_container_width=True)
-
-            st.markdown('---')
-
             sr_df = merged[merged['Sign_Reversal'] | merged['Mirror_Value']]
 
             st.markdown(f'### 🔴 Sign Reversal & Mirror Value ({len(sr_df)} item)')
